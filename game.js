@@ -143,6 +143,11 @@ class ShootingStar {
   update(dt) {
     this.x += this.vx * dt;
     this.y += this.vy * dt;
+    // Dejar estela temporal en la trayectoria
+    if (typeof trails !== 'undefined' && trails) {
+      trails.push(new Trail(this.x, this.y, this.isSpark));
+      if (trails.length > 400) trails.splice(0, trails.length - 400);
+    }
     if (
       this.x < -DESPAWN_MARGIN || this.x > W + DESPAWN_MARGIN ||
       this.y < -DESPAWN_MARGIN || this.y > H + DESPAWN_MARGIN
@@ -325,6 +330,31 @@ class Particle {
   }
 }
 
+// ── Trail (estela temporal de la estrella fugaz) ─────────────────────────────
+class Trail {
+  constructor(x, y, isSpark = false) {
+    this.x = x;
+    this.y = y;
+    this.life = isSpark ? 0.3 : 0.5;
+    this.ttl  = this.life;
+    this.r    = isSpark ? 2.5 : 4;
+    this.dead = false;
+  }
+
+  update(dt) {
+    this.ttl -= dt;
+    if (this.ttl <= 0) this.dead = true;
+  }
+
+  draw() {
+    const t = Math.max(this.ttl / this.life, 0);
+    ctx.fillStyle = `rgba(255, 230, 109, ${(t * 0.6).toFixed(2)})`;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r * t + 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 // ── PowerUp (speed boost) ───────────────────────────────────────────────────
 const BOOST_DURATION = 5;    // segundos de velocidad x2
 const POWERUP_TTL    = 10;   // segundos antes de desaparecer si no se recoge
@@ -379,7 +409,7 @@ class PowerUp {
 }
 
 // ── Estado del juego ──────────────────────────────────────────────────────────
-let ship, bullets, asteroids, particles, powerups, shootingStars;
+let ship, bullets, asteroids, particles, powerups, shootingStars, trails;
 let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
@@ -448,6 +478,7 @@ function initGame() {
   particles = [];
   powerups  = [];
   shootingStars = [];
+  trails    = [];
   score  = 0;
   lives  = 3;
   level  = 1;
@@ -463,6 +494,7 @@ function nextLevel() {
   particles = [];
   powerups  = [];
   shootingStars = [];
+  trails    = [];
   powerupTimer = POWERUP_EVERY;
   resetShootingStarTimer();
   ship.reset();
@@ -492,6 +524,8 @@ function update(dt) {
     if (pressed('Space')) initGame();
     particles.forEach(p => p.update(dt));
     particles = particles.filter(p => !p.dead);
+    trails.forEach(t => t.update(dt));
+    trails = trails.filter(t => !t.dead);
     return;
   }
 
@@ -504,6 +538,8 @@ function update(dt) {
     powerups = powerups.filter(p => !p.dead);
     shootingStars.forEach(s => s.update(dt));
     shootingStars = shootingStars.filter(s => !s.dead);
+    trails.forEach(t => t.update(dt));
+    trails = trails.filter(t => !t.dead);
     if (deadTimer <= 0) { state = 'playing'; ship.reset(); }
     return;
   }
@@ -519,11 +555,13 @@ function update(dt) {
   particles.forEach(p => p.update(dt));
   powerups.forEach(p => p.update(dt));
   shootingStars.forEach(s => s.update(dt));
+  trails.forEach(t => t.update(dt));
 
   bullets   = bullets.filter(b => !b.dead);
   particles = particles.filter(p => !p.dead);
   powerups  = powerups.filter(p => !p.dead);
   shootingStars = shootingStars.filter(s => !s.dead);
+  trails    = trails.filter(t => !t.dead);
 
   // Aparición del pickup: 1 máximo, no aparece con boost activo
   powerupTimer -= dt;
@@ -656,6 +694,7 @@ function draw() {
 
   particles.forEach(p => p.draw());
   asteroids.forEach(a => a.draw());
+  trails.forEach(t => t.draw());
   shootingStars.forEach(s => s.draw());
   powerups.forEach(p => p.draw());
   bullets.forEach(b => b.draw());
