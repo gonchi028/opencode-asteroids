@@ -211,10 +211,43 @@ class ShootingStar {
 }
 
 // ── Ship ──────────────────────────────────────────────────────────────────────
+const SKINS = [
+  { id: 'classic', name: 'CLASSIC', stroke: '#fff',    flame: 'rgba(255, 130, 0, 0.85)' },
+  { id: 'neon',    name: 'NEON',    stroke: '#0ff',    flame: 'rgba(0, 255, 255, 0.9)' },
+  { id: 'ember',   name: 'EMBER',   stroke: '#ff5544', flame: 'rgba(255, 90, 40, 0.9)' },
+  { id: 'gold',    name: 'GOLD',    stroke: '#ffd447', flame: 'rgba(255, 200, 60, 0.9)' },
+];
+const SKIN_KEY = 'asteroids-skin';
+
+function loadSkinIndex() {
+  try {
+    const raw = localStorage.getItem(SKIN_KEY);
+    const i = SKINS.findIndex(s => s.id === raw);
+    return i >= 0 ? i : 0;
+  } catch { return 0; }
+}
+
+function saveSkinIndex(i) {
+  try { localStorage.setItem(SKIN_KEY, SKINS[i].id); } catch {}
+}
+
 class Ship {
-  constructor() { this.reset(); }
+  constructor() {
+    this.skinIndex = loadSkinIndex();
+    this.reset();
+  }
+
+  get skin() { return SKINS[this.skinIndex] ?? SKINS[0]; }
+
+  setSkin(i) {
+    this.skinIndex = ((i % SKINS.length) + SKINS.length) % SKINS.length;
+    saveSkinIndex(this.skinIndex);
+  }
+
+  cycleSkin(dir = 1) { this.setSkin(this.skinIndex + dir); }
 
   reset() {
+    const skinIndex = (typeof this.skinIndex === 'number') ? this.skinIndex : loadSkinIndex();
     this.x      = W / 2;
     this.y      = H / 2;
     this.angle  = -Math.PI / 2;
@@ -225,7 +258,10 @@ class Ship {
     this.invincible    = 3;
     this.shootCooldown = 0;
     this.boost         = 0;
+    this.shield        = 0;
+    this.triple        = 0;
     this.dead          = false;
+    this.skinIndex     = skinIndex;
   }
 
   update(dt) {
@@ -233,6 +269,8 @@ class Ship {
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.boost         > 0) this.boost         -= dt;
+    if (this.shield        > 0) this.shield        -= dt;
+    if (this.triple        > 0) this.triple        -= dt;
 
     const ROT    = 3.5;  // rad/s
     const THRUST = 260 * (this.boost > 0 ? 2 : 1);  // px/s², x2 con speed boost
@@ -259,11 +297,30 @@ class Ship {
     const NOSE = 21;
     const ox = this.x + Math.cos(this.angle) * NOSE;
     const oy = this.y + Math.sin(this.angle) * NOSE;
+    if (this.triple > 0) {
+      const SPREAD = 0.2;
+      return [this.angle - SPREAD, this.angle, this.angle + SPREAD]
+        .map(a => new Bullet(ox, oy, a));
+    }
     return [new Bullet(ox, oy, this.angle)];
   }
 
   draw() {
     if (this.dead) return;
+    // Escudo: círculo azul siempre visible mientras está activo,
+    // incluso durante el parpadeo de invencibilidad de reaparición.
+    if (this.shield > 0) {
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.strokeStyle = SHIELD_COLOR;
+      ctx.lineWidth   = 2;
+      ctx.shadowColor = SHIELD_COLOR;
+      ctx.shadowBlur  = 12;
+      ctx.beginPath();
+      ctx.arc(0, 0, this.radius + 8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
     // Parpadeo durante invencibilidad de reaparición
     if (this.invincible > 0 && Math.floor(this.invincible * 8) % 2 === 0) return;
 
@@ -271,7 +328,9 @@ class Ship {
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
     const boosted = this.boost > 0;
-    ctx.strokeStyle = boosted ? '#0ff' : '#fff';
+    const tripled = this.triple > 0;
+    const skin = this.skin;
+    ctx.strokeStyle = tripled ? TRIPLE_COLOR : boosted ? BOOST_COLOR : skin.stroke;
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
 
@@ -290,7 +349,7 @@ class Ship {
       ctx.moveTo(-8, -4);
       ctx.lineTo(-8 - rand(boosted ? 12 : 6, boosted ? 24 : 14), 0);
       ctx.lineTo(-8,  4);
-      ctx.strokeStyle = boosted ? 'rgba(0, 255, 255, 0.9)' : 'rgba(255, 130, 0, 0.85)';
+      ctx.strokeStyle = boosted ? 'rgba(0, 255, 255, 0.9)' : skin.flame;
       ctx.stroke();
     }
 
@@ -355,15 +414,21 @@ class Trail {
   }
 }
 
-// ── PowerUp (speed boost) ───────────────────────────────────────────────────
-const BOOST_DURATION = 5;    // segundos de velocidad x2
+// ── PowerUp (boost / shield / triple-shot) ─────────────────────────────────────
+const BOOST_DURATION  = 5;    // segundos de velocidad x2
+const SHIELD_DURATION = 5;    // segundos de invulnerabilidad
+const TRIPLE_DURATION = 5;    // segundos de triple disparo
+const SHIELD_COLOR    = '#4d7cff';
+const BOOST_COLOR     = '#0ff';
+const TRIPLE_COLOR    = '#f0f';
 const POWERUP_TTL    = 10;   // segundos antes de desaparecer si no se recoge
 const POWERUP_EVERY  = 13;   // segundos entre intentos de aparición
 
 class PowerUp {
-  constructor(x, y) {
+  constructor(x, y, type = 'boost') {
     this.x = x;
     this.y = y;
+    this.type = type;   // 'boost' | 'shield' | 'triple'
     const angle = rand(0, Math.PI * 2);
     const speed = rand(10, 30);
     this.vx = Math.cos(angle) * speed;
@@ -385,8 +450,26 @@ class PowerUp {
     if (!blink) return;
     ctx.save();
     ctx.translate(this.x, this.y);
-    // Estrella de 5 puntas
-    ctx.strokeStyle = '#0ff';
+    if (this.type === 'shield') {
+      // Pickup de escudo: círculo azul con "S"
+      ctx.strokeStyle = SHIELD_COLOR;
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = SHIELD_COLOR;
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(0, 0, 10, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = SHIELD_COLOR;
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('S', 0, 3.5);
+      ctx.restore();
+      return;
+    }
+    const color = this.type === 'triple' ? TRIPLE_COLOR : BOOST_COLOR;
+    const label = this.type === 'triple' ? '3x' : '2x';
+    // Estrella de 5 puntas (boost / triple)
+    ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
     ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -400,10 +483,10 @@ class PowerUp {
     }
     ctx.closePath();
     ctx.stroke();
-    ctx.fillStyle = '#0ff';
+    ctx.fillStyle = color;
     ctx.font = 'bold 9px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('2x', 0, 3.5);
+    ctx.fillText(label, 0, 3.5);
     ctx.restore();
   }
 }
@@ -415,6 +498,7 @@ let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
 let powerupTimer;
 let shootingStarTimer;
+let skinNotice = 0;   // segundos restantes del aviso "SKIN: X"
 
 function spawnAsteroids(count) {
   const SAFE_DIST = 130;
@@ -429,7 +513,7 @@ function spawnAsteroids(count) {
 }
 
 function spawnPowerup() {
-  // Máximo 1 pickup activo en pantalla
+  // Máximo 1 pickup activo en pantalla; tipo aleatorio entre los 3
   if (powerups.length > 0) return;
   const SAFE_DIST = 130;
   let x, y;
@@ -437,7 +521,9 @@ function spawnPowerup() {
     x = rand(0, W);
     y = rand(0, H);
   } while (Math.hypot(x - W / 2, y - H / 2) < SAFE_DIST);
-  powerups.push(new PowerUp(x, y));
+  const r = Math.random();
+  const type = r < 1 / 3 ? 'boost' : r < 2 / 3 ? 'shield' : 'triple';
+  powerups.push(new PowerUp(x, y, type));
 }
 
 function resetShootingStarTimer() {
@@ -483,6 +569,7 @@ function initGame() {
   lives  = 3;
   level  = 1;
   state  = 'playing';
+  skinNotice = 0;
   powerupTimer = POWERUP_EVERY;
   resetShootingStarTimer();
   spawnAsteroids(4);
@@ -509,6 +596,8 @@ function killShip() {
   explode(ship.x, ship.y, 14);
   ship.dead = true;
   ship.boost = 0;
+  ship.shield = 0;
+  ship.triple = 0;
   lives--;
   if (lives <= 0) {
     state = 'gameover';
@@ -520,6 +609,8 @@ function killShip() {
 
 // ── Update ────────────────────────────────────────────────────────────────────
 function update(dt) {
+  if (skinNotice > 0) skinNotice -= dt;
+
   if (state === 'gameover') {
     if (pressed('Space')) initGame();
     particles.forEach(p => p.update(dt));
@@ -549,6 +640,12 @@ function update(dt) {
     bullets.push(...ship.tryShoot());
   }
 
+  // Cambiar skin con C
+  if (pressed('KeyC')) {
+    ship.cycleSkin(1);
+    skinNotice = 1.5;
+  }
+
   ship.update(dt);
   bullets.forEach(b => b.update(dt));
   asteroids.forEach(a => a.update(dt));
@@ -563,22 +660,24 @@ function update(dt) {
   shootingStars = shootingStars.filter(s => !s.dead);
   trails    = trails.filter(t => !t.dead);
 
-  // Aparición del pickup: 1 máximo, no aparece con boost activo
+  // Aparición del pickup: 1 máximo, no aparece con boost/escudo/triple activo
   powerupTimer -= dt;
   if (powerupTimer <= 0) {
     powerupTimer = POWERUP_EVERY;
-    if (powerups.length === 0 && ship.boost <= 0) spawnPowerup();
+    if (powerups.length === 0 && ship.boost <= 0 && ship.shield <= 0 && ship.triple <= 0) spawnPowerup();
   }
 
   // Aparición de la estrella fugaz: temporizador 8-12s, 1 máximo
   shootingStarTimer -= dt;
   if (shootingStarTimer <= 0) spawnShootingStar();
 
-  // Nave recoge speed boost
+  // Nave recoge power-up (boost, escudo o triple-shot)
   for (const p of powerups) {
     if (!p.dead && !ship.dead && dist(ship, p) < ship.radius + p.radius) {
       p.dead = true;
-      ship.boost = BOOST_DURATION;
+      if (p.type === 'shield') ship.shield = SHIELD_DURATION;
+      else if (p.type === 'triple') ship.triple = TRIPLE_DURATION;
+      else ship.boost = BOOST_DURATION;
       explode(p.x, p.y, 10);
     }
   }
@@ -616,8 +715,8 @@ function update(dt) {
   shootingStars = shootingStars.filter(s => !s.dead).concat(newSparks);
   bullets   = bullets.filter(b => !b.dead);
 
-  // Nave vs asteroide
-  if (ship.invincible <= 0) {
+  // Nave vs asteroide (el escudo otorga invulnerabilidad temporal)
+  if (ship.invincible <= 0 && ship.shield <= 0) {
     for (const a of asteroids) {
       if (dist(ship, a) < ship.radius + a.radius * 0.82) {
         killShip();
@@ -640,11 +739,11 @@ function update(dt) {
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
-function drawLifeIcon(x, y) {
+function drawLifeIcon(x, y, color = '#fff') {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(-Math.PI / 2);
-  ctx.strokeStyle = '#fff';
+  ctx.strokeStyle = color;
   ctx.lineWidth   = 1.2;
   ctx.lineJoin    = 'round';
   ctx.beginPath();
@@ -667,14 +766,44 @@ function drawHUD() {
   ctx.textAlign = 'center';
   ctx.fillText(`NIVEL ${level}`, W / 2, 26);
 
+  let hy = 46;
   if (ship && ship.boost > 0) {
-    ctx.fillStyle = '#0ff';
-    ctx.fillText(`BOOST ${ship.boost.toFixed(1)}s`, W / 2, 46);
+    ctx.fillStyle = BOOST_COLOR;
+    ctx.fillText(`BOOST ${ship.boost.toFixed(1)}s`, W / 2, hy);
+    ctx.fillStyle = '#fff';
+    hy += 18;
+  }
+
+  if (ship && ship.shield > 0) {
+    ctx.fillStyle = SHIELD_COLOR;
+    ctx.fillText(`SHIELD ${ship.shield.toFixed(1)}s`, W / 2, hy);
+    ctx.fillStyle = '#fff';
+    hy += 18;
+  }
+
+  if (ship && ship.triple > 0) {
+    ctx.fillStyle = TRIPLE_COLOR;
+    ctx.fillText(`TRIPLE ${ship.triple.toFixed(1)}s`, W / 2, hy);
+    ctx.fillStyle = '#fff';
+    hy += 18;
+  }
+
+  if (ship && skinNotice > 0) {
+    ctx.fillStyle = ship.skin.stroke;
+    ctx.fillText(`SKIN: ${ship.skin.name}`, W / 2, hy);
     ctx.fillStyle = '#fff';
   }
 
+  ctx.textAlign = 'left';
+  ctx.font = '12px monospace';
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.fillText('C: SKIN', 14, H - 14);
+  ctx.fillStyle = '#fff';
+  ctx.font = '15px monospace';
+
+  const lifeColor = ship ? ship.skin.stroke : '#fff';
   for (let i = 0; i < lives; i++)
-    drawLifeIcon(W - 16 - i * 22, 18);
+    drawLifeIcon(W - 16 - i * 22, 18, lifeColor);
 
 }
 
