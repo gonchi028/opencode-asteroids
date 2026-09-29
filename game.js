@@ -212,10 +212,14 @@ class ShootingStar {
 
 // ── Ship ──────────────────────────────────────────────────────────────────────
 const SKINS = [
-  { id: 'classic', name: 'CLASSIC', stroke: '#fff',    flame: 'rgba(255, 130, 0, 0.85)' },
-  { id: 'neon',    name: 'NEON',    stroke: '#0ff',    flame: 'rgba(0, 255, 255, 0.9)' },
-  { id: 'ember',   name: 'EMBER',   stroke: '#ff5544', flame: 'rgba(255, 90, 40, 0.9)' },
-  { id: 'gold',    name: 'GOLD',    stroke: '#ffd447', flame: 'rgba(255, 200, 60, 0.9)' },
+  { id: 'classic', name: 'CLASSIC', stroke: '#fff',    flame: 'rgba(255, 130, 0, 0.85)', shape: 'classic' },
+  { id: 'neon',    name: 'NEON',    stroke: '#0ff',    flame: 'rgba(0, 255, 255, 0.9)',  shape: 'dart' },
+  { id: 'ember',   name: 'EMBER',   stroke: '#ff5544', flame: 'rgba(255, 90, 40, 0.9)',  shape: 'wide' },
+  { id: 'gold',    name: 'GOLD',    stroke: '#ffd447', flame: 'rgba(255, 200, 60, 0.9)', shape: 'needle' },
+  { id: 'phantom', name: 'PHANTOM', stroke: '#b366ff', flame: 'rgba(179, 102, 255, 0.9)', shape: 'phantom' },
+  { id: 'viper',   name: 'VIPER',   stroke: '#39ff6a', flame: 'rgba(57, 255, 106, 0.9)',  shape: 'viper' },
+  { id: 'nova',    name: 'NOVA',    stroke: '#ff3da6', flame: 'rgba(255, 61, 166, 0.9)',  shape: 'nova' },
+  { id: 'frost',   name: 'FROST',   stroke: '#6ca8ff', flame: 'rgba(108, 168, 255, 0.9)', shape: 'frost' },
 ];
 const SKIN_KEY = 'asteroids-skin';
 
@@ -229,6 +233,70 @@ function loadSkinIndex() {
 
 function saveSkinIndex(i) {
   try { localStorage.setItem(SKIN_KEY, SKINS[i].id); } catch {}
+}
+
+// Traza el casco de la nave según la forma de la skin (sin stroke/fill).
+// Todas las formas miran hacia +X con la nariz en ~x=20 para no alterar
+// la hitbox (ship.radius) ni la posición de salida de las balas.
+function traceHull(shape) {
+  ctx.beginPath();
+  switch (shape) {
+    case 'dart':      // morro largo y estrecho
+      ctx.moveTo( 26,  0);
+      ctx.lineTo(-14, -7);
+      ctx.lineTo( -8,  0);
+      ctx.lineTo(-14,  7);
+      break;
+    case 'wide':      // alas anchas en flecha
+      ctx.moveTo( 16,  0);
+      ctx.lineTo(-10, -13);
+      ctx.lineTo( -4,  0);
+      ctx.lineTo(-10,  13);
+      break;
+    case 'needle':    // aguja fina y alargada
+      ctx.moveTo( 24,  0);
+      ctx.lineTo(-12, -5);
+      ctx.lineTo( -6,  0);
+      ctx.lineTo(-12,  5);
+      break;
+    case 'phantom':   // rombo facetado
+      ctx.moveTo( 20,  0);
+      ctx.lineTo( -2, -10);
+      ctx.lineTo(-12,  0);
+      ctx.lineTo( -2,  10);
+      break;
+    case 'viper':     // doble aleta trasera en W
+      ctx.moveTo( 20,  0);
+      ctx.lineTo(-12, -11);
+      ctx.lineTo( -5,  -4);
+      ctx.lineTo( -8,   0);
+      ctx.lineTo( -5,   4);
+      ctx.lineTo(-12,  11);
+      break;
+    case 'nova':      // punta de flecha robusta
+      ctx.moveTo( 22,  0);
+      ctx.lineTo( -6, -10);
+      ctx.lineTo(-12,  -4);
+      ctx.lineTo(-12,   4);
+      ctx.lineTo( -6,  10);
+      break;
+    case 'frost':     // casco facetado de 6 puntas
+      ctx.moveTo( 18,  0);
+      ctx.lineTo( -6, -6);
+      ctx.lineTo(-14, -8);
+      ctx.lineTo( -9,  0);
+      ctx.lineTo(-14,  8);
+      ctx.lineTo( -6,  6);
+      break;
+    case 'classic':
+    default:          // triángulo con muesca trasera
+      ctx.moveTo( 20,  0);   // nariz
+      ctx.lineTo(-12, -9);   // ala izquierda
+      ctx.lineTo( -7,  0);   // muesca trasera
+      ctx.lineTo(-12,  9);   // ala derecha
+      break;
+  }
+  ctx.closePath();
 }
 
 class Ship {
@@ -334,14 +402,21 @@ class Ship {
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
 
-    // Silueta clásica: triángulo con muesca trasera
-    ctx.beginPath();
-    ctx.moveTo( 20,  0);   // nariz
-    ctx.lineTo(-12, -9);   // ala izquierda
-    ctx.lineTo( -7,  0);   // muesca trasera
-    ctx.lineTo(-12,  9);   // ala derecha
-    ctx.closePath();
+    // Silueta según la forma de la skin (color + shape shift)
+    traceHull(skin.shape || 'classic');
     ctx.stroke();
+
+    // Detalle de cabina para las formas facetadas (refuerza el shape shift)
+    if (skin.shape === 'phantom' || skin.shape === 'nova' || skin.shape === 'frost') {
+      ctx.beginPath();
+      ctx.moveTo(8, 0);
+      ctx.lineTo(-2, 0);
+      ctx.stroke();
+    } else if (skin.shape === 'viper' || skin.shape === 'wide') {
+      ctx.beginPath();
+      ctx.arc(2, 0, 2.2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
     // Llama del propulsor
     if (this.thrusting && Math.random() > 0.35) {
@@ -739,19 +814,15 @@ function update(dt) {
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
-function drawLifeIcon(x, y, color = '#fff') {
+function drawLifeIcon(x, y, color = '#fff', shape = 'classic') {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(-Math.PI / 2);
+  ctx.scale(0.45, 0.45);
   ctx.strokeStyle = color;
-  ctx.lineWidth   = 1.2;
+  ctx.lineWidth   = 2.5;
   ctx.lineJoin    = 'round';
-  ctx.beginPath();
-  ctx.moveTo( 9,  0);
-  ctx.lineTo(-6, -5);
-  ctx.lineTo(-3,  0);
-  ctx.lineTo(-6,  5);
-  ctx.closePath();
+  traceHull(shape);
   ctx.stroke();
   ctx.restore();
 }
@@ -802,8 +873,9 @@ function drawHUD() {
   ctx.font = '15px monospace';
 
   const lifeColor = ship ? ship.skin.stroke : '#fff';
+  const lifeShape = ship ? ship.skin.shape : 'classic';
   for (let i = 0; i < lives; i++)
-    drawLifeIcon(W - 16 - i * 22, 18, lifeColor);
+    drawLifeIcon(W - 16 - i * 22, 18, lifeColor, lifeShape);
 
 }
 

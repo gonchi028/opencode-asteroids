@@ -29,6 +29,11 @@ Luego visita `http://localhost:3000`.
 | `←` `→`   | Rotar nave |
 | `↑`       | Propulsar  |
 | `Espacio` | Disparar   |
+| `C`       | Cambiar skin de la nave |
+
+## Skins de la nave
+
+8 skins con color y forma propios (se guardan en `localStorage`, se cambian con `C`): `CLASSIC`, `NEON` (dardo), `EMBER` (alas anchas), `GOLD` (aguja), `PHANTOM` (rombo), `VIPER` (doble aleta), `NOVA` (punta de flecha) y `FROST` (facetada).
 
 ## Puntuación
 
