@@ -1,0 +1,70 @@
+name: issue-triage
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+
+concurrency:
+  group: issue-triage-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    if: github.event.sender.type != 'Bot'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Triage issue with OpenCode
+        uses: anomalyco/opencode/github@latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        with:
+          model: opencode-go/muse-spark-1.3-contributor
+          prompt: |
+            You are triaging a newly opened GitHub issue. Analyze it, apply labels (creating them if missing), and post exactly one helpful comment.
+
+            Issue number: ${{ github.event.issue.number }}
+            Issue title: ${{ github.event.issue.title }}
+            Issue body:
+            ${{ github.event.issue.body }}
+
+            Repository context (zero-dependency vanilla HTML5 Canvas + JS):
+            - index.html: 800x600 <canvas id="canvas">, loads game.js via script tag. Keep W/H in sync.
+            - game.js (entire game): classes Ship / Bullet / Asteroid / ShootingStar / PowerUp / Particle / Trail, plus update() / draw() driven by requestAnimationFrame(loop). Toroidal wrapping via wrap(v, max). dt clamped to 0.05.
+            - Key mechanics: asteroids split size 3 -> 2 -> 1 (RADII / SPEEDS / POINTS), forgiving ship hitbox (ship.radius + a.radius * 0.82), 3 lives with invincibility blink, power-ups (boost/shield/triple, max 1 on screen), shooting star bonus (max 1 alive), 8 ship skins cycled with C persisted in localStorage.
+
+            Steps:
+            1. Read the issue title/body above. If empty or unclear, lean toward `needs-info` / `needs-repro`.
+            2. Skim index.html, game.js, and README.md to ground the analysis in real files/symbols.
+            3. Run `gh label list` to see existing labels.
+            4. Choose 1-4 labels. Prefer one `type:*` plus one `area:*` when possible, plus a priority when signal is clear. Use this taxonomy (create with `gh label create "<name>" --color "<hex>" --description "<text>"` only if missing):
+               - type: bug (d73a4a), type: feature (0e8a16), type: docs (0075ca), type: refactor (cfd3d7)
+               - area: gameplay (1d76db), area: rendering (e99695), area: input (fbca04), area: powerups (0e8a16), area: skins (d4c5f9), area: shooting-star (fef2c0)
+               - priority: high (b60205), priority: medium (fbca04), priority: low (0e8a16)
+               - good first issue (7057ff), needs-repro (e99695), needs-info (cfd3d7)
+               Do not invent labels outside this list unless clearly justified; keep names kebab-case.
+            5. Apply with: `gh issue edit ${{ github.event.issue.number }} --add-label "<l1>,<l2>"`
+            6. Post exactly one comment with: `gh issue comment ${{ github.event.issue.number }} --body "<markdown>"`
+               Comment format (match the issue language, English or Spanish):
+               ### Triage summary
+               - 2-3 sentence summary of the request.
+               - **Labels applied:** `label1`, `label2` + one-line why each.
+               - **Likely area:** file(s) and symbol(s), e.g. `game.js` `Ship.update()` / `Asteroid.split()` / `spawnShootingStar()` / `PowerUp`.
+               - **Helpful context:** relevant mechanic from repo context above (wrapping, hitbox, timers, skin persistence, etc.).
+               - **Suggested next steps:** repro steps or where a contributor would start.
+               - If `needs-info`/`needs-repro`, end with 1-3 specific questions (browser, controls pressed, score/level, console errors).
+
+            Guardrails:
+            - Only add labels and one comment. Do not close the issue, edit title/body, assign users, open PRs, or push commits.
+            - Do not post more than one comment. Do not re-triage on comment events.
+            - If labels/comment already applied (re-run), skip duplicates.
